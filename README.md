@@ -15,4 +15,10 @@ see the transmart-docker repository by io-informatics, referenced above.
 To use this docker image, install [docker](https://www.docker.com/) on the target host,
 obtain the [zip file](https://github.com/tranSMART-Foundation/transmart-docker/archive/master.zip) 
 of this repository, expand it in the directory of your choice, start the docker shell,
-change directory to that directory, and type the 
+change directory to that directory, and type 'make run' to run the docker VM for this image. 
+
+Useful commands
+* make build - just build the image
+* docker images - shows all the build images
+* docker ps - shows the running VM containers
+* 

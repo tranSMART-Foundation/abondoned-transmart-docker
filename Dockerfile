@@ -1,33 +1,46 @@
-# Transmart 1.2 using hyve installation
-# cf https://wiki.transmartfoundation.org/pages/viewpage.action?pageId=6619205
-# last modified by Terry Weymouth on Dec 10, 2014
+# This docker file draws on following sources:
+# https://github.com/io-informatics/transmart-docker/blob/bd13868820ab7b7611bbd0672fe9906a76083842/1.2.4/embedded/Dockerfile
+# https://github.com/quartzbio/transmart-docker/blob/15939cd8d09194a6a5c34b8f5a566fad45450745/Dockerfile
+# https://wiki.transmartfoundation.org/pages/viewpage.action?pageId=6619205
+# https://wiki.transmartfoundation.org/display/TSMTGPL/tranSMART+1.2+INSTALLATION+NOTES+ON+UBUNTU
+# and general Docker information at https://docs.docker.com/ (docs)
 
-
-FROM ubuntu:14.04
+FROM tomcat:7-jre8
 MAINTAINER Terry Weymouth <terry.weymouth@transmartfoundation.org>
 
 # ==================== supporting tools ====================
 
-RUN apt-key adv --keyserver keyserver.ubuntu.com --recv 3375DA21 && \
-	echo deb http://apt.thehyve.net/internal/ trusty main | \
-	tee /etc/apt/sources.list.d/hyve_internal.list && apt-get update
-
-RUN apt-get install -y \
-	make                    \
+RUN apt-get update && \
+	apt-get install -y \
+	build-essential         \
+	sudo                    \
 	curl                    \
 	git                     \
 	openjdk-7-jdk           \
 	groovy                  \
 	php5-cli                \
 	php5-json               \
-	postgresql-9.3          \
 	apache2                 \
-	tomcat7                 \
 	libtcnative-1           \
-	transmart-r
+	xz-utils                \
+	rsync                   \
+	r-base                  \
+	libcairo2-dev           \
+	supervisor
 
-# ==================== setup USER transmart ====================
-# create home too
+#Install R dependencies
+ADD biocLite.R /tmp/biocLite.R
+ADD install-packages.R /tmp/install-packages.R
+RUN echo "r <- getOption('repos'); r['CRAN'] <- 'http://cran.us.r-project.org'; options(repos = r);" > ~/.Rprofile
+RUN Rscript /tmp/install-packages.R
+
+## Configure default locale: TODO, put it below, before transmart
+RUN sudo bash -c 'echo "en_US.UTF-8 UTF-8" >> /etc/locale.gen \
+	&& locale-gen en_US.utf8 \
+	&& /usr/sbin/update-locale LANG=en_US.UTF-8'
+ENV LC_ALL en_US.UTF-8
+
+# =========== setup USER transmart and home dir =============
 RUN useradd -m transmart
 # sudo with no password
 RUN echo "transmart ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
@@ -36,17 +49,10 @@ ENV HOME /home/transmart
 USER transmart
 WORKDIR /home/transmart
 
-
-# ==================== load transmart data ====================
+# ================== load transmart data ===================
 
 RUN git clone --progress https://github.com/transmart/transmart-data.git
 WORKDIR /home/transmart/transmart-data
-
-## Configure default locale: TODO, put it below, before transmart
-RUN sudo bash -c 'echo "en_US.UTF-8 UTF-8" >> /etc/locale.gen \
-	&& locale-gen en_US.utf8 \
-	&& /usr/sbin/update-locale LANG=en_US.UTF-8'
-ENV LC_ALL en_US.UTF-8
 
 RUN php env/vars-ubuntu.php > vars
 
@@ -59,7 +65,6 @@ RUN sudo service postgresql start && \
 
 ### STEP: Prepare ETL environment
 # # karl: need xz-utils to uncompress data
-RUN sudo apt-get install xz-utils
 
 #### apparently not needed, dixit Florian, but not sure...
 RUN bash -c 'source vars && \
@@ -103,6 +108,9 @@ RUN echo 'USER=tomcat7' | sudo tee /etc/default/rserve
 ### STEP: Deploy tranSMART web application on tomcat.
 RUN echo 'JAVA_OPTS="-Xmx4096M -XX:MaxPermSize=1024M"' | sudo tee /usr/share/tomcat7/bin/setenv.sh
 
+### STEP: set permissions on .grails
+RUN sudo chown -R tomcat7.tomcat7 /usr/share/tomcat7/.grails
+
 ### STEP: transmart WAR (web app archive) 
 # N.B: put this as late as possible to make sure that reloading transmart.war minimizes changes and change time
 # Currently  this is the latest, successfully built, 1.2.X snapshot version
@@ -138,6 +146,4 @@ EXPOSE 8983
 EXPOSE 5432
 
 CMD /usr/bin/supervisord -c /etc/supervisor/supervisord.conf
-
-
 
