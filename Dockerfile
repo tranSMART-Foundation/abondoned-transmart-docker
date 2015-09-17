@@ -5,8 +5,13 @@
 # https://wiki.transmartfoundation.org/display/TSMTGPL/tranSMART+1.2+INSTALLATION+NOTES+ON+UBUNTU
 # and general Docker information at https://docs.docker.com/ (docs)
 
-FROM tomcat:7-jre8
+FROM ubuntu:14.04
 MAINTAINER Terry Weymouth <terry.weymouth@transmartfoundation.org>
+
+# =========== Configure default locale =============
+RUN locale-gen en_US.UTF-8 \
+	&& update-locale LANG=en_US.UTF-8
+ENV LC_ALL en_US.UTF-8
 
 # ==================== supporting tools ====================
 
@@ -14,31 +19,28 @@ RUN apt-get update && \
 	apt-get install -y \
 	build-essential         \
 	sudo                    \
+	make                    \
 	curl                    \
 	git                     \
-	openjdk-7-jdk           \
-	groovy                  \
-	php5-cli                \
-	php5-json               \
-	apache2                 \
 	libtcnative-1           \
 	xz-utils                \
 	rsync                   \
 	r-base                  \
 	libcairo2-dev           \
+	openjdk-7-jdk           \
+	groovy                  \
+	php5-cli                \
+	php5-json               \
+	postgresql-9.3          \
+	apache2                 \
+	tomcat7                 \
 	supervisor
 
-#Install R dependencies
+# =========== setup R and R installs =============
 ADD biocLite.R /tmp/biocLite.R
 ADD install-packages.R /tmp/install-packages.R
 RUN echo "r <- getOption('repos'); r['CRAN'] <- 'http://cran.us.r-project.org'; options(repos = r);" > ~/.Rprofile
-RUN Rscript /tmp/install-packages.R
-
-## Configure default locale: TODO, put it below, before transmart
-RUN sudo bash -c 'echo "en_US.UTF-8 UTF-8" >> /etc/locale.gen \
-	&& locale-gen en_US.utf8 \
-	&& /usr/sbin/update-locale LANG=en_US.UTF-8'
-ENV LC_ALL en_US.UTF-8
+RUN Rscript /tmp/install-packages.R #redo
 
 # =========== setup USER transmart and home dir =============
 RUN useradd -m transmart
@@ -72,12 +74,6 @@ RUN bash -c 'source vars && \
  	make -C env/ update_etl'
 
 # ### STEP:  example studies
-# karl: fix, must update the git repo first and re-run data-integration
-#RUN git pull origin master && \
-#RUN 	bash -c 'source vars && make -C env/ data-integration'
-
-#COPY GSE19976.zip /home/transmart/transmart-data/
-#COPY v12_GSE19976_clin.sh /home/transmart/transmart-data/
 RUN sudo rm -f /var/run/postgresql/.s* /var/run/postgresql/* /var/lib/postgresql/9.3/main/postmaster.pid && \
  		sudo service postgresql start && bash -c 'source vars && \
  		make -C samples/postgres load_clinical_GSE8581 load_ref_annotation_GSE8581 \
@@ -101,8 +97,7 @@ RUN bash -c "source vars; make -C solr/ solr_home"
 # karl (from Florian): fix the solr port in groovy config
 RUN sudo perl -pi'.bak' -e 's/(def solrPort\s+=\s+)\d+/$1 8983/ ' /usr/share/tomcat7/.grails/transmartConfig/Config.groovy
 
-### STEP: Configure and start Rserve
-#  karl: N.B, will just configure it for now
+### STEP: Configure Rserve - 
 RUN echo 'USER=tomcat7' | sudo tee /etc/default/rserve
 
 ### STEP: Deploy tranSMART web application on tomcat.
@@ -121,7 +116,7 @@ WORKDIR /var/lib/tomcat7/webapps
 RUN rm -f transmart.war && \
 	curl -# $TRANSMART_URL > transmart.war
 
-########################### SUPERVISOR ######################################
+# ==================== SUPERVISOR ====================
 
 USER root
 
@@ -129,8 +124,8 @@ RUN apt-get install -y --no-install-recommends supervisor
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
 
-# ==================== karl: configure postgres for external connections ========
-# replace existing listen_addresses entry by our own
+# configure postgres for external connections: possibly, replace existing listen_addresses entry by our own
+
 RUN perl -i -pe "s/.*listen_addresses.+/listen_addresses = '*'/" /etc/postgresql/9.3/main/postgresql.conf
 # allow any connection to postgres
 RUN echo "host all all 0.0.0.0/0 md5" >> /etc/postgresql/9.3/main/pg_hba.conf
